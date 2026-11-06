@@ -3,10 +3,10 @@ import {
   collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc,
   serverTimestamp, query, orderBy
 } from 'firebase/firestore';
-import { db, ready, connect } from './firebase';
+import { db, ready, connect, auth, ADMIN_EMAIL, loginAdmin, logoutAdmin } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const LOCAL = 'gamezone-data';
-const PIN = 'gamezone-pin';
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -28,8 +28,10 @@ export default function App() {
   const [sessions, setSessions] = useState([]);
   const [tab, setTab] = useState('Dashboard');
   const [admin, setAdmin] = useState(false);
-  const [pin, setPin] = useState('');
-  const [pinOpen, setPinOpen] = useState(false);
+  const [email, setEmail] = useState(ADMIN_EMAIL);
+  const [password, setPassword] = useState('');
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
   const [name, setName] = useState('');
   const [sessionOpen, setSessionOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState('Game Session');
@@ -41,6 +43,11 @@ export default function App() {
   const [msg, setMsg] = useState('');
   const [cloud, setCloud] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!ready || !auth) return;
+    return onAuthStateChanged(auth, user => setAdmin(user?.email === ADMIN_EMAIL));
+  }, []);
 
   useEffect(() => {
     if (!ready) {
@@ -72,14 +79,23 @@ export default function App() {
   }, [players, matches, sessions, dataLoaded]);
 
   const ask = () => {
-    if (!admin) setPinOpen(true);
+    if (!admin) setLoginOpen(true);
     return admin;
   };
 
-  const unlock = () => {
-    if (pin === (localStorage.getItem(PIN) || '2468')) {
-      setAdmin(true); setPinOpen(false); setPin(''); setMsg('Admin mode enabled');
-    } else setMsg('Incorrect PIN');
+  const unlock = async () => {
+    setAuthBusy(true);
+    try {
+      await loginAdmin(email.trim(), password);
+      setLoginOpen(false); setPassword(''); setMsg('Admin access enabled');
+    } catch (error) {
+      setMsg(error.code === 'auth/invalid-credential' ? 'Incorrect email or password' : `Login failed: ${error.message}`);
+    } finally { setAuthBusy(false); }
+  };
+
+  const exitAdmin = async () => {
+    try { await logoutAdmin(); setMsg('Admin access closed'); }
+    catch (error) { setMsg(`Logout failed: ${error.message}`); }
   };
 
   const addPlayer = async e => {
@@ -219,7 +235,7 @@ export default function App() {
         <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}</button>
       )}
       <div className="bottom"><p>{cloud ? '● Cloud sync connected' : '● Local preview mode'}</p>
-        <button onClick={() => admin ? setAdmin(false) : setPinOpen(true)}>{admin ? 'Exit Admin' : 'Admin Access'}</button>
+        <button onClick={() => admin ? exitAdmin() : setLoginOpen(true)}>{admin ? 'Exit Admin' : 'Admin Access'}</button>
       </div>
     </aside>
 
@@ -318,11 +334,11 @@ export default function App() {
       <footer>GAMEZONE · YOUR GAME, YOUR STATS</footer>
     </main>
 
-    {pinOpen && <div className="shade"><div className="modal"><button className="close" onClick={() => setPinOpen(false)}>×</button>
-      <h2>Admin access</h2><p>Enter your admin PIN. First-time demo PIN: <b>2468</b></p>
-      <input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} placeholder="Admin PIN"/>
-      <button className="primary" onClick={unlock}>Unlock</button>
-      <button className="subtle" onClick={() => { const n = prompt('Enter new 4–8 digit PIN'); if (n && /^\d{4,8}$/.test(n)) { localStorage.setItem(PIN, n); setMsg('PIN changed on this device'); } else if (n) setMsg('PIN must be 4–8 digits'); }}>Change PIN</button>
+    {loginOpen && <div className="shade"><div className="modal"><button className="close" onClick={() => setLoginOpen(false)}>×</button>
+      <h2>Admin login</h2><p>Sign in with the GameZone administrator account.</p>
+      <label>Email</label><input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder="Admin email"/>
+      <label>Password</label><input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Admin password" onKeyDown={e => e.key === 'Enter' && unlock()}/>
+      <button className="primary" onClick={unlock} disabled={authBusy || !email.trim() || !password}>{authBusy ? 'Signing in…' : 'Sign in'}</button>
     </div></div>}
 
     {sessionOpen && <div className="shade"><div className="modal wide"><button className="close" onClick={() => setSessionOpen(false)}>×</button>
