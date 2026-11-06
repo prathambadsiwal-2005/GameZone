@@ -1,0 +1,1 @@
+self.addEventListener('install',e=>{e.waitUntil(caches.open('gamezone-v1').then(c=>c.addAll(['/','/manifest.webmanifest'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method==='GET')e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))});
